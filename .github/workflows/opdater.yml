@@ -1,0 +1,48 @@
+name: Hent huse
+
+on:
+  schedule:
+    - cron: "17 5 * * *"   # hver morgen ca. kl. 6-7 dansk tid
+  workflow_dispatch: {}      # knappen "Run workflow" til manuel opdatering
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: husjagt
+  cancel-in-progress: false
+
+jobs:
+  opdater:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Hent huse fra Boligsiden og Boliga
+        run: python scripts/hent_huse.py
+
+      - name: Gem data i repoet
+        run: |
+          git config user.name "husjagt-bot"
+          git config user.email "husjagt-bot@users.noreply.github.com"
+          git add docs/data/huse.json
+          git diff --cached --quiet || git commit -m "Opdaterede huse $(date +%F)"
+          git push
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+      - id: deploy
+        uses: actions/deploy-pages@v4
