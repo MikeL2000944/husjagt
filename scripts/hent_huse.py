@@ -40,7 +40,7 @@ def tal(v):
 
 
 def adresse_noegle(vej, nr, postnr):
-    s = f"{vej or ''} {nr or ''}".lower().replace(".", "").replace(",", "")
+    s = f"{vej or ''} {nr or ''}".split(",")[0].lower().replace(".", "")   # "Hulvejen 41, Mastrup" -> "hulvejen 41"
     return " ".join(s.split()) + f"|{postnr}"
 
 
