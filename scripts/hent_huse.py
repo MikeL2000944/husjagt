@@ -62,13 +62,8 @@ def billede_boligsiden(c):
 def hent_boligsiden():
     huse = []
     for side in range(1, 11):
-        q = {
-            "addressTypes": "villa",
-            "zipCodes": ",".join(POSTNUMRE),
-            "priceMax": MAKS_PRIS,
-            "per_page": 50,
-            "page": side,
-        }
+        q = [("addressTypes", "villa"), ("priceMax", MAKS_PRIS), ("per_page", 100), ("page", side)]
+        q += [("zipCodes", p) for p in POSTNUMRE]   # skal gentages, ikke kommasepareres
         data = hent_json("https://api.boligsiden.dk/search/cases?" + urllib.parse.urlencode(q))
         cases = data.get("cases") or []
         for c in cases:
@@ -76,11 +71,10 @@ def hent_boligsiden():
             postnr = str(a.get("zipCode") or c.get("zipCode") or "")
             vej = a.get("roadName") or ""
             nr = a.get("houseNumber") or ""
-            url = c.get("caseUrl") or ""
-            if url and url.startswith("/"):
-                url = "https://www.boligsiden.dk" + url
-            if not url and a.get("slug"):
-                url = "https://www.boligsiden.dk/adresse/" + a["slug"]
+            url = ("https://www.boligsiden.dk/adresse/" + a["slug"]) if a.get("slug") else (c.get("caseUrl") or "")
+            # BBR-data: hovedbygningen er den med størst boligareal
+            bygn = [b for b in (a.get("buildings") or []) if b.get("housingArea")]
+            hoved = max(bygn, key=lambda b: b["housingArea"]) if bygn else {}
             huse.append({
                 "kilde": "Boligsiden",
                 "type": "villa",
@@ -90,21 +84,21 @@ def hent_boligsiden():
                 "postnr": postnr,
                 "by": a.get("cityName") or ((a.get("city") or {}).get("name") if isinstance(a.get("city"), dict) else a.get("city")),
                 "pris": tal(c.get("priceCash")),
-                "kvm": tal(c.get("housingArea")),
+                "kvm": tal(c.get("housingArea")) or tal(a.get("livingArea")) or tal(hoved.get("housingArea")),
                 "grund": tal(c.get("lotArea")),
-                "vaerelser": tal(c.get("numberOfRooms")),
-                "bad": tal(c.get("numberOfBathrooms")),
-                "toiletter": tal(c.get("numberOfToilets")),
-                "byggeaar": tal(c.get("yearBuilt")),
+                "vaerelser": tal(c.get("numberOfRooms")) or tal(hoved.get("numberOfRooms")),
+                "bad": tal(c.get("numberOfBathrooms")) if c.get("numberOfBathrooms") is not None else tal(hoved.get("numberOfBathrooms")),
+                "toiletter": tal(c.get("numberOfToilets")) if c.get("numberOfToilets") is not None else tal(hoved.get("numberOfToilets")),
+                "byggeaar": tal(c.get("yearBuilt")) or tal(hoved.get("yearBuilt")),
                 "energi": (c.get("energyLabel") or "").upper() or None,
-                "dage": tal(c.get("daysOnMarket")),
+                "dage": tal(c.get("daysOnMarket")) if not isinstance(c.get("daysOnMarket"), dict) else None,
                 "billede": billede_boligsiden(c),
                 "url": url,
                 "lat": (c.get("coordinates") or {}).get("lat"),
                 "lon": (c.get("coordinates") or {}).get("lon"),
             })
         total = data.get("totalHits") or 0
-        if not cases or side * 50 >= total:
+        if not cases or side * 100 >= total:
             break
         time.sleep(1)
     return huse
