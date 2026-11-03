@@ -32,7 +32,7 @@
   .img{position:relative;aspect-ratio:16/10;background:var(--chip) center/cover no-repeat}
   .tags{position:absolute;left:8px;top:8px;display:flex;gap:6px;flex-wrap:wrap}
   .tag{background:rgba(0,0,0,.65);color:#fff;font-size:12px;font-weight:600;padding:3px 8px;border-radius:6px}
-  .tag.ny{background:var(--accent)} .tag.fald{background:var(--good)} .tag.vaek{background:#555}
+  .tag.ny{background:var(--accent)} .tag.uset{background:#2563eb} .tag.fald{background:var(--good)} .tag.vaek{background:#555}
   .fav{position:absolute;right:8px;top:8px;width:40px;height:40px;border-radius:50%;border:0;background:rgba(255,255,255,.92);font-size:20px;cursor:pointer;line-height:40px}
   .body{padding:12px 14px 14px;display:flex;flex-direction:column;gap:8px;flex:1}
   .pris{font-size:20px;font-weight:700}
@@ -42,7 +42,7 @@
   .f{background:var(--chip);border-radius:7px;padding:3px 8px;font-size:13px}
   .f.ok{outline:1.5px solid var(--good)} .f.mangler{outline:1.5px dashed var(--warn)} .f.nej{outline:1.5px solid var(--accent)}
   .links{display:flex;gap:8px;margin-top:auto;flex-wrap:wrap}
-  .links a{flex:1;text-align:center;text-decoration:none;color:var(--ink);border:1px solid var(--line);border-radius:9px;padding:8px;font-size:14px;font-weight:600}
+  .links a,.links button{flex:1;font:inherit;background:none;cursor:pointer;text-align:center;text-decoration:none;color:var(--ink);border:1px solid var(--line);border-radius:9px;padding:8px;font-size:14px;font-weight:600}
   textarea{width:100%;font:inherit;font-size:14px;border:1px solid var(--line);border-radius:9px;padding:8px;background:var(--bg);color:var(--ink);resize:vertical;min-height:38px}
   .tom{text-align:center;color:var(--mut);padding:50px 20px}
   /* filterpanel */
@@ -68,8 +68,7 @@
 
 <div class="bar" id="bar">
   <button class="pill" id="btnFilter">⚙︎ Filtre</button>
-  <button class="pill" data-hurtig="match">✓ Opfylder krav</button>
-  <button class="pill" data-hurtig="ny">Nye (7 dage)</button>
+  <button class="pill" data-hurtig="uset">● Kun usete</button>
   <button class="pill" data-hurtig="fav">♥ Favoritter</button>
   <select class="pill" id="sort">
     <option value="ny">Nyeste først</option>
@@ -95,8 +94,8 @@
     <div class="row"><label for="badUkendt">Vis også hvis antal bad er ukendt</label><input type="checkbox" id="badUkendt"></div>
     <div class="row"><label for="aar">Bygget i eller efter</label><input type="number" id="aar"></div>
     <div class="row"><label for="pris">Maks. pris (kr.)</label><input type="number" id="pris" step="50000"></div>
-    <div class="row"><label for="by9230">Svenstrup / Godthåb (9230)</label><input type="checkbox" id="by9230"></div>
-    <div class="row"><label for="by9530">Støvring (9530)</label><input type="checkbox" id="by9530"></div>
+    <div class="row" style="flex-wrap:wrap"><label for="radius">Afstand fra Svenstrup, Godthåb eller Støvring</label>
+      <div style="display:flex;align-items:center;gap:10px;width:100%"><input type="range" id="radius" min="1" max="20" step="1" style="flex:1"><b id="radiusTxt" style="min-width:56px;text-align:right"></b></div></div>
     <div class="row"><label for="visVaek">Vis solgte/fjernede</label><input type="checkbox" id="visVaek"></div>
     <div class="knapper">
       <button value="nulstil" id="nulstil">Nulstil</button>
@@ -107,13 +106,16 @@
 <div class="toast" id="toast"></div>
 
 <script>
-const STANDARD = {kvm:150, vaer:5, bad:2, badUkendt:true, aar:1990, pris:4000000, by9230:true, by9530:true, visVaek:false};
+const STANDARD = {kvm:150, vaer:5, bad:2, badUkendt:true, aar:1990, pris:4000000, radius:3, visVaek:false};
+const CENTRE = [["Svenstrup",56.9737,9.8494],["Godthåb",56.9630,9.8280],["Støvring",56.8862,9.8379]];
+const HJEMPOSTNR = ["9230","9530"];
 const LS = {
   get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch(e){ return d; } },
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
 };
 let krav = Object.assign({}, STANDARD, LS.get("husjagt-krav", {}));
-let hurtig = LS.get("husjagt-hurtig", {match:true, ny:false, fav:false});
+let hurtig = LS.get("husjagt-hurtig2", {uset:false, fav:false});
+let sete = LS.get("husjagt-sete", {});   // id -> dato set
 let sortering = LS.get("husjagt-sort", "ny");
 let favs = LS.get("husjagt-favs", {});   // id -> {note}
 let huse = [], opdateret = "";
@@ -145,7 +147,24 @@ function badStatus(h){
   if(h.bad == null) return "mangler";
   return h.bad >= krav.bad ? "ok" : "nej";
 }
+function afstand(h){
+  if(h.lat == null || h.lon == null) return null;
+  let min = 1e9, navn = "";
+  for(const [n, la, lo] of CENTRE){
+    const dx = (h.lon - lo) * 111.32 * Math.cos(la * Math.PI/180), dy = (h.lat - la) * 110.57;
+    const d = Math.hypot(dx, dy); if(d < min){ min = d; navn = n; }
+  }
+  return {km: min, navn};
+}
+function indenforRadius(h){
+  const a = afstand(h);
+  if(!a) return HJEMPOSTNR.includes(h.postnr);   // uden koordinater: kun egne postnumre
+  return a.km <= krav.radius;
+}
+function erUset(h){ return h.aktiv && !sete[h.id]; }
+function markerSet(id){ if(!sete[id]){ sete[id] = new Date().toISOString().slice(0,10); LS.set("husjagt-sete", sete); } }
 function opfylder(h){
+  if(h.type && h.type !== "villa") return false;
   if(h.kvm != null && h.kvm < krav.kvm) return false;
   if(h.vaerelser != null && h.vaerelser < krav.vaer) return false;
   if(h.byggeaar != null && h.byggeaar < krav.aar) return false;
@@ -156,10 +175,9 @@ function opfylder(h){
 }
 function synlig(h){
   if(!h.aktiv && !krav.visVaek && !favs[h.id]) return false;
-  if(h.postnr === "9230" && !krav.by9230) return false;
-  if(h.postnr === "9530" && !krav.by9530) return false;
-  if(hurtig.match && !opfylder(h)) return false;
-  if(hurtig.ny && dageSiden(h.foerstSet) > 7) return false;
+  if(!indenforRadius(h)) return false;
+  if(!opfylder(h)) return false;          // jeres krav gælder altid
+  if(hurtig.uset && !erUset(h)) return false;
   if(hurtig.fav && !favs[h.id]) return false;
   return true;
 }
@@ -171,6 +189,8 @@ function prisfald(h){
 
 function kort(h){
   const nyt = dageSiden(h.foerstSet) <= 7 && h.aktiv;
+  const uset = erUset(h);
+  const af = afstand(h);
   const fald = prisfald(h);
   const fav = !!favs[h.id];
   const bs = badStatus(h);
@@ -184,16 +204,17 @@ function kort(h){
     h.energi ? f(`Energi ${h.energi}`, "") : "",
     (h.pris && h.kvm) ? f(`${Math.round(h.pris/h.kvm).toLocaleString("da-DK")} kr/m²`, "") : ""
   ].join("");
-  const links = (h.links || [{kilde:h.kilde, url:h.url}]).map(l => `<a href="${l.url}" target="_blank" rel="noopener">${l.kilde} ↗</a>`).join("");
+  const links = (h.links || [{kilde:h.kilde, url:h.url}]).map(l => `<a href="${l.url}" target="_blank" rel="noopener" data-set="${h.id}">${l.kilde} ↗</a>`).join("")
+    + (uset ? `<button data-markset="${h.id}">✓ Set</button>` : "");
   const dage = h.aktiv ? (h.dage != null ? `${h.dage} dage til salg` : `Set første gang ${new Date(h.foerstSet).toLocaleDateString("da-DK")}`) : "Ikke længere til salg";
   return `<article class="card ${h.aktiv?"":"vaek"}">
     <div class="img" style="background-image:url('${h.billede||""}')">
-      <div class="tags">${nyt?'<span class="tag ny">NY</span>':""}${fald>0?`<span class="tag fald">↓ ${kr(fald)}</span>`:""}${!h.aktiv?'<span class="tag vaek">Væk</span>':""}</div>
+      <div class="tags">${uset?'<span class="tag uset">NYT FOR JER</span>':""}${nyt && !uset?'<span class="tag ny">NY</span>':""}${fald>0?`<span class="tag fald">↓ ${kr(fald)}</span>`:""}${!h.aktiv?'<span class="tag vaek">Væk</span>':""}</div>
       <button class="fav" data-fav="${h.id}" aria-label="Favorit">${fav?"❤️":"🤍"}</button>
     </div>
     <div class="body">
       <div class="pris">${kr(h.pris)}</div>
-      <div class="adr">${h.adresse}<span>${h.postnr} ${h.by||""} · ${dage}</span></div>
+      <div class="adr">${h.adresse}<span>${h.postnr} ${h.by||""}${af && af.km > 1.5 ? ` · ${af.km.toFixed(1).replace(".",",")} km fra ${af.navn}` : ""} · ${dage}</span></div>
       <div class="facts">${facts}</div>
       ${fav ? `<textarea data-note="${h.id}" placeholder="Jeres noter…">${(favs[h.id].note||"").replace(/</g,"&lt;")}</textarea>` : ""}
       <div class="links">${links}</div>
@@ -212,15 +233,17 @@ function tegn(){
     kvm:(a,b)=>(b.kvm??0)-(a.kvm??0),
     kvmpris:(a,b)=>((a.pris/a.kvm)||1e9)-((b.pris/b.kvm)||1e9)
   }[sortering];
-  vis.sort((a,b)=> (b.aktiv-a.aktiv) || s(a,b));
+  vis.sort((a,b)=> (b.aktiv-a.aktiv) || (erUset(b)-erUset(a)) || s(a,b));
   const aktive = huse.filter(h=>h.aktiv).length;
-  const nye = vis.filter(h=>dageSiden(h.foerstSet)<=7 && h.aktiv).length;
-  $("status").textContent = `${vis.length} huse vist${nye?` · ${nye} nye`:""} · ${aktive} villaer til salg i alt · opdateret ${opdateret ? new Date(opdateret).toLocaleDateString("da-DK",{day:"numeric",month:"long"}) : "?"}`;
+  const usete = vis.filter(erUset).length;
+  $("status").textContent = `${vis.length} villaer opfylder jeres krav${usete?` · ${usete} nye for jer`:" · ingen nye for jer"} · inden for ${krav.radius} km · opdateret ${opdateret ? new Date(opdateret).toLocaleDateString("da-DK",{day:"numeric",month:"long"}) : "?"}`;
   $("grid").innerHTML = vis.length ? vis.map(kort).join("") :
-    `<div class="tom">Ingen huse lige nu, der passer på filtrene.<br>Prøv at slå "Opfylder krav" fra for at se alle.</div>`;
+    `<div class="tom">Ingen huse lige nu, der passer på filtrene.<br>Prøv at øge afstanden eller justere kravene under ⚙︎ Filtre.</div>`;
 }
 
-function fyldForm(){ for(const k in STANDARD){ const el=$(k); if(el.type==="checkbox") el.checked=!!krav[k]; else el.value=krav[k]; } }
+function fyldForm(){ for(const k in STANDARD){ const el=$(k); if(el.type==="checkbox") el.checked=!!krav[k]; else el.value=krav[k]; } visRadius(); }
+function visRadius(){ $("radiusTxt").textContent = $("radius").value + " km"; }
+$("radius").addEventListener("input", visRadius);
 function laesForm(){ for(const k in STANDARD){ const el=$(k); krav[k] = el.type==="checkbox" ? el.checked : Number(el.value)||0; } LS.set("husjagt-krav", krav); }
 
 $("btnFilter").onclick = () => { fyldForm(); $("dlg").showModal(); };
@@ -229,9 +252,11 @@ $("dlg").addEventListener("click", e => { if(e.target === $("dlg")) $("dlg").clo
 for(const b of document.querySelectorAll("[data-hurtig]")) b.onclick = () => { hurtig[b.dataset.hurtig] = !hurtig[b.dataset.hurtig]; LS.set("husjagt-hurtig", hurtig); tegn(); };
 $("sort").onchange = e => { sortering = e.target.value; LS.set("husjagt-sort", sortering); tegn(); };
 $("grid").addEventListener("click", e => {
+  const l = e.target.closest("[data-set]"); if(l){ markerSet(l.dataset.set); setTimeout(tegn, 300); return; }
+  const m = e.target.closest("[data-markset]"); if(m){ markerSet(m.dataset.markset); tegn(); return; }
   const b = e.target.closest("[data-fav]"); if(!b) return;
   const id = b.dataset.fav;
-  if(favs[id]){ if(favs[id].note && !confirm("Fjern favorit og noter?")) return; delete favs[id]; } else favs[id] = {note:""};
+  if(favs[id]){ if(favs[id].note && !confirm("Fjern favorit og noter?")) return; delete favs[id]; } else { favs[id] = {note:""}; markerSet(id); }
   LS.set("husjagt-favs", favs); tegn();
 });
 $("grid").addEventListener("input", e => {

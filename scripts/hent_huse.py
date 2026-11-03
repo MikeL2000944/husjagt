@@ -14,8 +14,10 @@ import urllib.parse
 import urllib.request
 from datetime import date
 
-POSTNUMRE = ["9230", "9530"]
-MAKS_PRIS = 4_000_000          # henter lidt bredt; filtrering sker på siden
+# 9230 Svenstrup/Godthåb/Ellidshøj, 9530 Støvring + nabopostnumre, så afstandsskyderen
+# på siden kan "rykke radius" lidt ud. Selve afstandsfilteret sker på siden.
+POSTNUMRE = ["9230", "9530", "9541", "9520", "9240", "9200", "9210", "9260", "9000"]
+MAKS_PRIS = 5_000_000          # henter lidt bredt; jeres eget filter (4 mio.) sker på siden
 DATAFIL = os.path.join(os.path.dirname(__file__), "..", "docs", "data", "huse.json")
 UA = {"User-Agent": "Mozilla/5.0 (husjagt; privat boligoverblik)",
       "Accept": "application/json"}
@@ -81,6 +83,7 @@ def hent_boligsiden():
                 url = "https://www.boligsiden.dk/adresse/" + a["slug"]
             huse.append({
                 "kilde": "Boligsiden",
+                "type": "villa",
                 "id": f"bs-{c.get('caseID')}",
                 "noegle": adresse_noegle(vej, nr, postnr),
                 "adresse": f"{vej} {nr}".strip(),
@@ -128,6 +131,7 @@ def hent_boliga():
             billeder = r.get("images") or []
             huse.append({
                 "kilde": "Boliga",
+                "type": "villa",
                 "id": f"bl-{r.get('id')}",
                 "noegle": adresse_noegle(vej, nr, postnr),
                 "adresse": gade,
