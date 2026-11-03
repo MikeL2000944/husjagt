@@ -29,6 +29,9 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Debug API
+        run: python scripts/debug_api.py || true
+
       - name: Hent huse fra Boligsiden og Boliga
         run: python scripts/hent_huse.py
 
